@@ -32,6 +32,7 @@ import           Network.HTTP.Client.TLS
 import           Network.HTTP.Types.Status
 import           System.Directory          (getCurrentDirectory)
 import           System.Environment        (lookupEnv)
+import           System.FilePath           ((</>))
 import           System.Process            (system)
 
 import           Docker.Client
@@ -86,6 +87,14 @@ testBuildFromDockerfile = do
   let ctxDir = cur ++ "/tests"
   runDocker $ do
     r <- buildImageFromDockerfile (defaultBuildOpts "docker-hs/dockerfile-test") ctxDir
+    lift $ assert $ isRight r
+
+testTagDockerImage :: IO ()
+testTagDockerImage = do
+  cur <- getCurrentDirectory
+  let ctxDir = cur </> "/tests"
+  runDocker $ do
+    res <- tagImage testImageName "some.remote.com:1000/test" (Just "testTag1")
     lift $ assert $ isRight r
 
 testRunAndReadLog :: IO ()
@@ -190,6 +199,7 @@ integrationTests =
     "Integration Tests"
     [ testCase "Get docker version" testDockerVersion
     , testCase "Build image from Dockerfile" testBuildFromDockerfile
+    , testCase "Tag a docker image" testTagDockerImage
     , testCase "Find image by name" testFindImage
     , testCase "List containers" testListContainers
     , testCase "Run a dummy container and read its log" testRunAndReadLog

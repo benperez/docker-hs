@@ -109,7 +109,7 @@ mkHttpRequest verb e opts = request
 
 defaultHttpHandler :: (
 #if MIN_VERSION_http_conduit(2,3,0)
-    MonadUnliftIO m, 
+    MonadUnliftIO m,
 #endif
     MonadIO m, MonadMask m) => m (HttpHandler m)
 defaultHttpHandler = do
@@ -118,7 +118,7 @@ defaultHttpHandler = do
 
 httpHandler :: (
 #if MIN_VERSION_http_conduit(2,3,0)
-    MonadUnliftIO m, 
+    MonadUnliftIO m,
 #endif
     MonadIO m, MonadMask m) => HTTP.Manager -> HttpHandler m
 httpHandler manager = HttpHandler $ \request' sink -> do -- runResourceT ..
@@ -140,7 +140,7 @@ httpHandler manager = HttpHandler $ \request' sink -> do -- runResourceT ..
 --   sockets (and the port obviously doesn't matter either)
 unixHttpHandler :: (
 #if MIN_VERSION_http_conduit(2,3,0)
-    MonadUnliftIO m, 
+    MonadUnliftIO m,
 #endif
     MonadIO m, MonadMask m) => FilePath -- ^ The socket to connect to
                 -> m (HttpHandler m)
@@ -273,4 +273,8 @@ statusCodeToError (CreateImageEndpoint _ _ _) st =
         Nothing
     else
         Just $ DockerInvalidStatusCode st
-
+statusCodeToError (TagImageEndpoint _ _ _) st =
+    if st == status200 then
+        Nothing
+    else
+        Just $ DockerInvalidStatusCode st
