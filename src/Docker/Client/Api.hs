@@ -21,6 +21,7 @@ module Docker.Client.Api (
     , buildImageFromDockerfile
     , pullImage
     , tagImage
+    , pushImage
     -- * Other
     , getDockerVersion
     ) where
@@ -210,3 +211,6 @@ pullImage name tag = requestHelper' POST (CreateImageEndpoint name tag Nothing)
 
 tagImage :: forall m. (MonadIO m, MonadMask m) => T.Text -> T.Text -> Maybe Tag -> DockerT m (Either DockerError ())
 tagImage name repo maybeTag = requestUnit POST (TagImageEndpoint name repo maybeTag)
+
+pushImage :: forall m. (MonadIO m, MonadMask m) => T.Text ->  Maybe Tag -> DockerT m (Either DockerError ())
+pushImage name maybeTag = requestUnit POST (PushImageEndpoint name maybeTag)
