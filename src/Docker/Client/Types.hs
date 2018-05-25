@@ -127,6 +127,7 @@ data Endpoint =
       | InspectContainerEndpoint ContainerID
       | BuildImageEndpoint BuildOpts FilePath
       | CreateImageEndpoint T.Text Tag (Maybe T.Text) -- ^ Either pull an image from docker hub or imports an image from a tarball (or URL)
+      | TagImageEndpoint T.Text T.Text (Maybe Tag)
     deriving (Eq, Show)
 
 -- | We should newtype this
