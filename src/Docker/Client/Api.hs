@@ -26,8 +26,9 @@ module Docker.Client.Api (
     , getDockerVersion
     ) where
 
-import           Control.Monad.Catch    (MonadMask (..))
-import           Control.Monad.IO.Class
+-- import           Control.Monad.Catch    (MonadMask (..))
+-- import           Control.Monad.IO.Class
+import           Control.Monad.IO.Unlift (MonadUnliftIO)
 import           Control.Monad.Reader   (ask, lift)
 import           Data.Aeson             (FromJSON, eitherDecode')
 import qualified Data.ByteString        as BS
@@ -44,13 +45,13 @@ import           Docker.Client.Http
 import           Docker.Client.Types
 import           Docker.Client.Utils
 
-requestUnit :: (MonadIO m, MonadMask m) => HttpVerb -> Endpoint -> DockerT m (Either DockerError ())
+requestUnit :: MonadUnliftIO m => HttpVerb -> Endpoint -> DockerT m (Either DockerError ())
 requestUnit verb endpoint = fmap (const ()) <$> requestHelper verb endpoint
 
-requestHelper :: (MonadIO m, MonadMask m) => HttpVerb -> Endpoint -> DockerT m (Either DockerError BSL.ByteString)
+requestHelper :: MonadUnliftIO m => HttpVerb -> Endpoint -> DockerT m (Either DockerError BSL.ByteString)
 requestHelper verb endpoint = requestHelper' verb endpoint Conduit.sinkLbs
 
-requestHelper' :: (MonadIO m, MonadMask m) => HttpVerb -> Endpoint -> Sink BS.ByteString m a -> DockerT m (Either DockerError a)
+requestHelper' :: MonadUnliftIO m => HttpVerb -> Endpoint -> Sink BS.ByteString m a -> DockerT m (Either DockerError a)
 requestHelper' verb endpoint sink = do
     (opts, HttpHandler httpHandler) <- ask
     case mkHttpRequest verb endpoint opts of
@@ -80,40 +81,40 @@ parseResponse (Right response) =
             return $ Right r
 
 -- | Gets the version of the docker engine remote API.
-getDockerVersion :: forall m. (MonadIO m, MonadMask m) => DockerT m (Either DockerError DockerVersion)
+getDockerVersion :: forall m. MonadUnliftIO m => DockerT m (Either DockerError DockerVersion)
 getDockerVersion = requestHelper GET VersionEndpoint >>= parseResponse
 
 -- | Lists all running docker containers. Pass in @'defaultListOpts' {all
 -- = True}@ to get a list of stopped containers as well.
-listContainers :: forall m. (MonadIO m, MonadMask m) => ListOpts -> DockerT m (Either DockerError [Container])
+listContainers :: forall m. MonadUnliftIO m => ListOpts -> DockerT m (Either DockerError [Container])
 listContainers opts = requestHelper GET (ListContainersEndpoint opts) >>= parseResponse
 
 -- | Lists all docker images.
-listImages :: forall m. (MonadIO m, MonadMask m) => ListOpts -> DockerT m (Either DockerError [Image])
+listImages :: forall m. MonadUnliftIO m => ListOpts -> DockerT m (Either DockerError [Image])
 listImages opts = requestHelper GET (ListImagesEndpoint opts) >>= parseResponse
 
 -- | Creates a docker container but does __not__ start it. See
 -- 'CreateOpts' for a list of options and you can use 'defaultCreateOpts'
 -- for some sane defaults.
-createContainer :: forall m. (MonadIO m, MonadMask m) => CreateOpts -> Maybe ContainerName -> DockerT m (Either DockerError ContainerID)
+createContainer :: forall m. MonadUnliftIO m => CreateOpts -> Maybe ContainerName -> DockerT m (Either DockerError ContainerID)
 createContainer opts cn = requestHelper POST (CreateContainerEndpoint opts cn) >>= parseResponse
 
 -- | Start a container from a given 'ContainerID' that we get from
 -- 'createContainer'. See 'StartOpts' for a list of configuration options
 -- for starting a container. Use 'defaultStartOpts' for sane defaults.
-startContainer :: forall m. (MonadIO m, MonadMask m) => StartOpts -> ContainerID -> DockerT m (Either DockerError ())
+startContainer :: forall m. MonadUnliftIO m => StartOpts -> ContainerID -> DockerT m (Either DockerError ())
 startContainer sopts cid = requestUnit POST $ StartContainerEndpoint sopts cid
 
 -- | Attempts to stop a container with the given 'ContainerID' gracefully
 -- (SIGTERM).
 -- The docker daemon will wait for the given 'Timeout' and then send
 -- a SIGKILL killing the container.
-stopContainer :: forall m. (MonadIO m, MonadMask m) => Timeout -> ContainerID -> DockerT m (Either DockerError ())
+stopContainer :: forall m. MonadUnliftIO m => Timeout -> ContainerID -> DockerT m (Either DockerError ())
 stopContainer t cid = requestUnit POST $ StopContainerEndpoint t cid
 
 -- | Blocks until a container with the given 'ContainerID' stops,
 -- then returns the exit code
-waitContainer :: forall m. (MonadIO m, MonadMask m) => ContainerID -> DockerT m (Either DockerError ExitCode)
+waitContainer :: forall m. MonadUnliftIO m => ContainerID -> DockerT m (Either DockerError ExitCode)
 waitContainer cid = fmap (fmap statusCodeToExitCode) (requestHelper POST (WaitContainerEndpoint cid) >>= parseResponse)
   where
     statusCodeToExitCode (StatusCode 0) = ExitSuccess
@@ -121,29 +122,29 @@ waitContainer cid = fmap (fmap statusCodeToExitCode) (requestHelper POST (WaitCo
 
 -- | Sends a 'Signal' to the container with the given 'ContainerID'. Same
 -- as 'stopContainer' but you choose the signal directly.
-killContainer :: forall m. (MonadIO m, MonadMask m) => Signal -> ContainerID -> DockerT m (Either DockerError ())
+killContainer :: forall m. MonadUnliftIO m => Signal -> ContainerID -> DockerT m (Either DockerError ())
 killContainer s cid = requestUnit POST $ KillContainerEndpoint s cid
 
 -- | Restarts a container with the given 'ContainerID'.
-restartContainer :: forall m. (MonadIO m, MonadMask m) => Timeout -> ContainerID -> DockerT m (Either DockerError ())
+restartContainer :: forall m. MonadUnliftIO m => Timeout -> ContainerID -> DockerT m (Either DockerError ())
 restartContainer t cid = requestUnit POST $ RestartContainerEndpoint t cid
 
 -- | Pauses a container with the given 'ContainerID'.
-pauseContainer :: forall m. (MonadIO m, MonadMask m) => ContainerID -> DockerT m (Either DockerError ())
+pauseContainer :: forall m. MonadUnliftIO m => ContainerID -> DockerT m (Either DockerError ())
 pauseContainer cid = requestUnit POST $ PauseContainerEndpoint cid
 
 -- | Unpauses a container with the given 'ContainerID'.
-unpauseContainer :: forall m. (MonadIO m, MonadMask m) => ContainerID -> DockerT m (Either DockerError ())
+unpauseContainer :: forall m. MonadUnliftIO m => ContainerID -> DockerT m (Either DockerError ())
 unpauseContainer cid = requestUnit GET $ UnpauseContainerEndpoint cid
 
 -- | Deletes a container with the given 'ContainerID'.
 -- See "DeleteOpts" for options and use 'defaultDeleteOpts' for sane
 -- defaults.
-deleteContainer :: forall m. (MonadIO m, MonadMask m) => DeleteOpts -> ContainerID -> DockerT m (Either DockerError ())
+deleteContainer :: forall m. MonadUnliftIO m => DeleteOpts -> ContainerID -> DockerT m (Either DockerError ())
 deleteContainer dopts cid = requestUnit DELETE $ DeleteContainerEndpoint dopts cid
 
 -- | Gets 'ContainerDetails' for a given 'ContainerID'.
-inspectContainer :: forall m . (MonadIO m, MonadMask m) => ContainerID -> DockerT m (Either DockerError ContainerDetails)
+inspectContainer :: forall m . MonadUnliftIO m => ContainerID -> DockerT m (Either DockerError ContainerDetails)
 inspectContainer cid = requestHelper GET (InspectContainerEndpoint cid) >>= parseResponse
 
 -- | Get's container's logs for a given 'ContainerID'.
@@ -163,7 +164,7 @@ inspectContainer cid = requestHelper GET (InspectContainerEndpoint cid) >>= pars
 --
 -- __NOTE__: It's recommended to use one of the other 'LogDriverType's available (like
 -- syslog) for creating your containers.
-getContainerLogs ::  forall m. (MonadIO m, MonadMask m) => LogOpts -> ContainerID -> DockerT m (Either DockerError BSL.ByteString)
+getContainerLogs ::  forall m. MonadUnliftIO m => LogOpts -> ContainerID -> DockerT m (Either DockerError BSL.ByteString)
 getContainerLogs logopts cid = requestHelper GET (ContainerLogsEndpoint logopts False cid)
 
 {-| Continuously gets the container's logs as a stream. Uses conduit.
@@ -180,7 +181,7 @@ __Example__:
 @
 
 -}
-getContainerLogsStream :: forall m b . (MonadIO m, MonadMask m) => LogOpts -> ContainerID -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
+getContainerLogsStream :: forall m b . MonadUnliftIO m => LogOpts -> ContainerID -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
 getContainerLogsStream logopts cid = requestHelper' GET (ContainerLogsEndpoint logopts True cid)
 -- JP: Should the second (follow) argument be True? XXX
 
@@ -191,7 +192,7 @@ getContainerLogsStream logopts cid = requestHelper' GET (ContainerLogsEndpoint l
 -- TODO: Add support for remote URLs to a Dockerfile
 --
 -- TODO: Clean up temp tar.gz file after the image is built
-buildImageFromDockerfile :: forall m. (MonadIO m, MonadMask m) => BuildOpts -> FilePath -> DockerT m (Either DockerError ())
+buildImageFromDockerfile :: forall m. MonadUnliftIO m => BuildOpts -> FilePath -> DockerT m (Either DockerError ())
 buildImageFromDockerfile opts base = do
     ctx <- makeBuildContext $ BuildContextRootDir base
     case ctx of
@@ -206,11 +207,11 @@ buildImageFromDockerfile opts base = do
 -- TODO: Implement importImage function that uses he same
 -- CreateImageEndpoint but rather than pulling from docker hub it imports
 -- the image from a tarball or a URL.
-pullImage :: forall m b . (MonadIO m, MonadMask m) => T.Text -> Tag -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
+pullImage :: forall m b . MonadUnliftIO m => T.Text -> Tag -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
 pullImage name tag = requestHelper' POST (CreateImageEndpoint name tag Nothing)
 
-tagImage :: forall m. (MonadIO m, MonadMask m) => T.Text -> T.Text -> Maybe Tag -> DockerT m (Either DockerError ())
+tagImage :: forall m. MonadUnliftIO m => T.Text -> T.Text -> Maybe Tag -> DockerT m (Either DockerError ())
 tagImage name repo maybeTag = requestUnit POST (TagImageEndpoint name repo maybeTag)
 
-pushImage :: forall m. (MonadIO m, MonadMask m) => T.Text ->  Maybe Tag -> DockerT m (Either DockerError ())
+pushImage :: forall m. MonadUnliftIO m => T.Text ->  Maybe Tag -> DockerT m (Either DockerError ())
 pushImage name maybeTag = requestUnit POST (PushImageEndpoint name maybeTag)
