@@ -81,11 +81,10 @@ getEndpoint v (TagImageEndpoint name repo maybeTag) = encodeURLWithQuery [v, "im
               tagQuery = case maybeTag of
                 Just tag -> [("tag", Just $ encodeQ $ T.unpack tag)]
                 Nothing -> []
-getEndpoint v (PushImageEndpoint repo maybeTag) = encodeURL url
-        where url = [v, "images"] ++ imageName ++ ["push"]
-              imageName = case maybeTag of
-                Just tag -> [repo, tag]
-                Nothing -> [repo]
+getEndpoint v (PushImageEndpoint repo maybeTag) = encodeURLWithQuery [v, "images", repo, "push"] query
+        where query = case maybeTag of
+                Just tag -> [("tag", Just $ encodeQ $ T.unpack tag)]
+                Nothing -> []
 
 getEndpointRequestBody :: Endpoint -> Maybe HTTP.RequestBody
 getEndpointRequestBody VersionEndpoint = Nothing
