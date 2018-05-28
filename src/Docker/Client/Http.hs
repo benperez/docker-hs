@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns          #-}
 {-# LANGUAGE RankNTypes          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -9,6 +10,7 @@ import           Control.Monad.Catch          (MonadMask (..))
 import           Control.Monad.IO.Unlift      (MonadUnliftIO)
 #endif
 import           Control.Monad.Reader         (ReaderT (..), runReaderT)
+import qualified Data.ByteString.Base64       as B64
 import qualified Data.ByteString.Char8        as BSC
 import qualified Data.ByteString.Lazy         as BL
 import           Data.Conduit                 (Sink)
@@ -48,7 +50,7 @@ import           Docker.Client.Internal       (getEndpoint,
                                                getEndpointContentType,
                                                getEndpointRequestBody)
 import           Docker.Client.Types          (DockerClientOpts, Endpoint (..),
-                                               apiVer, baseUrl)
+                                               apiVer, baseUrl, registryAuth, DockerClientRegAuth(..))
 
 type Request = HTTP.Request
 type Response = HTTP.Response BL.ByteString
@@ -97,11 +99,19 @@ runDockerT (opts, h) r = runReaderT (unDockerT r) (opts, h)
 mkHttpRequest :: HttpVerb -> Endpoint -> DockerClientOpts -> Maybe Request
 mkHttpRequest verb e opts = request
         where fullE = T.unpack (baseUrl opts) ++ T.unpack (getEndpoint (apiVer opts) e)
+              headers = [("Content-Type", (getEndpointContentType e))] ++ case registryAuth opts of
+                Nothing -> []
+                Just DockerClientRegAuth{username,password} ->
+                  let
+                    authJSON = "{\"username\":\"" ++ username ++ "\", \"password\":\"" ++ password ++  "\"}"
+                    encoded = B64.encode $ encodeUtf8 $ T.pack authJSON
+                  in
+                    [("X-Registry-Auth", encoded)]
               initialR = parseRequest fullE
               request' = case  initialR of
                             Just ir ->
                                 return $ ir {method = (encodeUtf8 . T.pack $ show verb),
-                                              requestHeaders = [("Content-Type", (getEndpointContentType e))]}
+                                              requestHeaders = headers}
                             Nothing -> Nothing
               request = (\r -> maybe r (\body -> r {requestBody = body,  -- This will either be a HTTP.RequestBodyLBS  or HTTP.RequestBodySourceChunked for the build endpoint
                                                     requestHeaders = [("Content-Type", "application/json; charset=utf-8")]}) $ getEndpointRequestBody e) <$> request'

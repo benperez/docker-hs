@@ -33,6 +33,7 @@ library
                      , http-client >= 0.4.0 && < 0.6.0
                      , http-types >= 0.9 && < 0.13
                      , vector
+                     , base64-bytestring
                      , conduit
                      , conduit-combinators
                      , conduit-extra
