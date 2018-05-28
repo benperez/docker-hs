@@ -16,6 +16,7 @@ module Docker.Client.Types (
     , Signal(..)
     , ContainerDetails(..)
     , DockerClientOpts(..)
+    , DockerClientRegAuth(..)
     , defaultClientOpts
     , ListOpts(..)
     , defaultListOpts
@@ -303,19 +304,25 @@ instance FromJSON ContainerState where
         return $ ContainerState err exit finished oomKilled dead paused pid restarting running started st
     parseJSON _ = fail "ContainerState is not an object"
 
+data DockerClientRegAuth = DockerClientRegAuth {
+      username :: String
+    , password :: String
+    } deriving (Eq, Show)
 
 -- | Client options used to configure the remote engine we're talking to
 data DockerClientOpts = DockerClientOpts {
       apiVer  :: ApiVersion
     , baseUrl :: URL
+    , registryAuth :: Maybe DockerClientRegAuth
     }
     deriving (Eq, Show)
 
 -- | Default "DockerClientOpts" used for talking to the docker engine.
 defaultClientOpts :: DockerClientOpts
 defaultClientOpts = DockerClientOpts {
-                  apiVer = "v1.24"
+                  apiVer = "v1.37"
                 , baseUrl = "http://127.0.0.1:2375"
+                , registryAuth = Nothing
                 }
 
 -- | List options used for filtering the list of container or images.
