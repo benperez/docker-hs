@@ -200,7 +200,10 @@ buildImageFromDockerfile opts base = do
     ctx <- makeBuildContext $ BuildContextRootDir base
     case ctx of
         Left e  -> return $ Left e
-        Right c -> requestUnit POST (BuildImageEndpoint opts c)
+        Right c -> do
+            lbs <- requestHelper POST (BuildImageEndpoint opts c)
+            traceShowM lbs
+            return $ return ()
 
 -- | Pulls an image from Docker Hub (by default).
 --
