@@ -220,4 +220,7 @@ tagImage :: forall m. MonadUnliftIO m => T.Text -> T.Text -> Maybe Tag -> Docker
 tagImage name repo maybeTag = requestUnit POST (TagImageEndpoint name repo maybeTag)
 
 pushImage :: forall m. MonadUnliftIO m => T.Text ->  Maybe Tag -> DockerT m (Either DockerError ())
-pushImage name maybeTag = requestUnit POST (PushImageEndpoint name maybeTag)
+pushImage name maybeTag = do
+    lbs <- requestHelper POST (PushImageEndpoint name maybeTag)
+    traceShowM lbs
+    return $ return ()
