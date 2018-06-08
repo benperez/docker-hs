@@ -289,7 +289,7 @@ statusCodeToError (CreateImageEndpoint _ _ _) st =
     else
         Just $ DockerInvalidStatusCode st
 statusCodeToError (TagImageEndpoint _ _ _) st =
-    if st == status200 then
+    if st == status201 then
         Nothing
     else
         Just $ DockerInvalidStatusCode st
