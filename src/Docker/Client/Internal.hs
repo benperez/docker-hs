@@ -1,17 +1,25 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Docker.Client.Internal where
 
-import           Blaze.ByteString.Builder (toByteString)
-import qualified Data.Aeson               as JSON
-import           Data.ByteString          (ByteString)
-import qualified Data.ByteString.Char8    as BSC
-import qualified Data.Conduit.Binary      as CB
-import qualified Data.Text                as T
-import           Data.Text.Encoding       (decodeUtf8, encodeUtf8)
-import qualified Network.HTTP.Client      as HTTP
-import           Network.HTTP.Conduit     (requestBodySourceChunked)
-import           Network.HTTP.Types       (Query, encodePath,
-                                           encodePathSegments)
-import           Prelude                  hiding (all)
+import           Blaze.ByteString.Builder  (toByteString)
+import qualified Data.Aeson                as JSON
+import           Data.ByteString           (ByteString)
+import qualified Data.ByteString.Base64    as B64
+import qualified Data.ByteString.Char8     as BSC
+import qualified Data.ByteString.Lazy      as BSL
+import qualified Data.Conduit.Binary       as CB
+import qualified Data.Map                  as Map
+import           Data.Monoid               ((<>))
+import qualified Data.Text                 as T
+import           Data.Text.Encoding        (decodeUtf8, encodeUtf8)
+import qualified Network.HTTP.Client       as HTTP
+import           Network.HTTP.Conduit      (requestBodySourceChunked)
+import           Network.HTTP.Types        (Query, encodePath,
+                                            encodePathSegments)
+import           Network.HTTP.Types.Header (Header)
+import           Network.URI               (URI(..), parseURI)
+import           Prelude                   hiding (all)
 
 import           Docker.Client.Types
 
@@ -86,6 +94,63 @@ getEndpoint v (PushImageEndpoint repo maybeTag) = encodeURLWithQuery url query
               query = case maybeTag of
                 Just tag -> [("tag", Just $ encodeQ $ T.unpack tag)]
                 Nothing -> []
+
+-- ensure that the repo has an "http://" or an "https://" in front of it
+normalizeScheme :: T.Text -> T.Text
+normalizeScheme input =
+  if startsWithHttp input || startsWithHttps input
+  then input
+  else "http://" <> input
+  where
+    startsWithHttp :: T.Text -> Bool
+    startsWithHttp = (== "http") . T.toLower . T.take (T.length "http")
+    startsWithHttps :: T.Text -> Bool
+    startsWithHttps = (== "https") . T.toLower . T.take (T.length "https")
+
+-- always add https: to the repo url
+-- strip the url component from the registry
+normalizeRegUrl :: T.Text -> Maybe T.Text
+normalizeRegUrl = fmap (T.pack . show . setFields)
+                . parseURI
+                . T.unpack
+                . normalizeScheme
+  where
+    setFields :: URI -> URI
+    setFields uri = uri{uriScheme="https:",uriPath=""}
+
+makeXRegistryAuth :: RegistryConfig -> T.Text -> Maybe [Header]
+makeXRegistryAuth (RegistryConfig rc) repoUrl = do
+  normalized <- normalizeRegUrl repoUrl
+  makeHeader <$> Map.lookup normalized rc
+  where
+    makeHeader :: RegistryAuth -> [Header]
+    makeHeader ra = [("X-Registry-Auth", B64.encode (BSL.toStrict (JSON.encode ra)))]
+
+makeXRegistryConfig :: RegistryConfig -> [Header]
+makeXRegistryConfig rc = [("X-Registry-Config", B64.encode (BSL.toStrict (JSON.encode rc)))]
+
+getAuthHeader :: Maybe RegistryConfig -> Endpoint -> Maybe [Header]
+getAuthHeader Nothing = const (Just [])
+getAuthHeader (Just rc) = \case
+    VersionEndpoint -> Just []
+    ListContainersEndpoint _ -> Just []
+    ListImagesEndpoint _ -> Just []
+    CreateContainerEndpoint _ _ -> Just []
+    StartContainerEndpoint _ _ -> Just []
+    StopContainerEndpoint _ _ -> Just []
+    WaitContainerEndpoint _ -> Just []
+    KillContainerEndpoint _ _ -> Just []
+    RestartContainerEndpoint _ _ -> Just []
+    PauseContainerEndpoint _ -> Just []
+    UnpauseContainerEndpoint _ -> Just []
+    ContainerLogsEndpoint _ _ _ -> Just []
+    DeleteContainerEndpoint _ _ -> Just []
+    InspectContainerEndpoint _ -> Just []
+    CreateImageEndpoint _ _ _ -> Just []
+
+    BuildImageEndpoint _ _ -> Just $ makeXRegistryConfig rc
+    TagImageEndpoint _ _ _ -> Just []
+    PushImageEndpoint regName _ -> makeXRegistryAuth rc regName
 
 getEndpointRequestBody :: Endpoint -> Maybe HTTP.RequestBody
 getEndpointRequestBody VersionEndpoint = Nothing

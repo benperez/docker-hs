@@ -16,7 +16,9 @@ module Docker.Client.Types (
     , Signal(..)
     , ContainerDetails(..)
     , DockerClientOpts(..)
-    , DockerClientRegAuth(..)
+    , DockerAuthStrategy(..)
+    , RegistryAuth(..)
+    , RegistryConfig(..)
     , defaultClientOpts
     , ListOpts(..)
     , defaultListOpts
@@ -99,6 +101,7 @@ import qualified Data.Aeson          as JSON
 import           Data.Aeson.Types    (defaultOptions, fieldLabelModifier)
 import           Data.Char           (isAlphaNum, toUpper)
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Map            as Map
 import           Data.Monoid         ((<>))
 import           Data.Scientific     (floatingOrInteger)
 import           Data.Text           (Text)
@@ -304,16 +307,30 @@ instance FromJSON ContainerState where
         return $ ContainerState err exit finished oomKilled dead paused pid restarting running started st
     parseJSON _ = fail "ContainerState is not an object"
 
-data DockerClientRegAuth = DockerClientRegAuth {
+data DockerAuthStrategy = NoAuthStrategy
+                        | ExplicitStrategy RegistryConfig
+                        | DiscoverStrategy
+
+data RegistryAuth = RegistryAuth {
       username :: String
     , password :: String
-    } deriving (Eq, Show)
+    }
+    deriving (Eq, Show)
+
+instance ToJSON RegistryAuth where
+    toJSON (RegistryAuth username password) = object ["username" .= username, "password" .= password]
+
+newtype RegistryConfig = RegistryConfig (Map.Map Text RegistryAuth)
+    deriving (Eq, Show)
+
+instance ToJSON RegistryConfig where
+    toJSON (RegistryConfig entries) = toJSON entries
 
 -- | Client options used to configure the remote engine we're talking to
 data DockerClientOpts = DockerClientOpts {
       apiVer  :: ApiVersion
     , baseUrl :: URL
-    , registryAuth :: Maybe DockerClientRegAuth
+    , authInfo :: Maybe RegistryConfig
     }
     deriving (Eq, Show)
 
@@ -322,7 +339,7 @@ defaultClientOpts :: DockerClientOpts
 defaultClientOpts = DockerClientOpts {
                   apiVer = "v1.37"
                 , baseUrl = "http://127.0.0.1:2375"
-                , registryAuth = Nothing
+                , authInfo = Nothing
                 }
 
 -- | List options used for filtering the list of container or images.

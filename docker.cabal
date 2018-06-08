@@ -39,6 +39,8 @@ library
                      , conduit-extra
                      , exceptions
                      , monad-control
+                     , network-uri
+                     , process
                      , resourcet
                      , transformers
                      , transformers-base

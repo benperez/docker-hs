@@ -115,5 +115,5 @@ module Docker.Client (
     ) where
 
 import           Docker.Client.Api
-import           Docker.Client.Http
+import           Docker.Client.Http hiding (DockerConfig(..), HelperOutput(..))
 import           Docker.Client.Types

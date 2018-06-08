@@ -1,20 +1,27 @@
-{-# LANGUAGE NamedFieldPuns          #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DisambiguateRecordFields #-}
+{-# LANGUAGE NamedFieldPuns           #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE RankNTypes               #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE TupleSections            #-}
 
 module Docker.Client.Http where
 
 -- import           Control.Monad.Base           (MonadBase(..), liftBaseDefault)
+import           Control.Monad                (mapM)
 import           Control.Monad.Catch          (MonadMask (..))
 #if MIN_VERSION_http_conduit(2,3,0)
-import           Control.Monad.IO.Unlift      (MonadUnliftIO)
+import           Control.Monad.IO.Unlift      (MonadUnliftIO, liftIO)
 #endif
 import           Control.Monad.Reader         (ReaderT (..), runReaderT)
-import qualified Data.ByteString.Base64       as B64
+import           Data.Aeson                  as JSON
 import qualified Data.ByteString.Char8        as BSC
 import qualified Data.ByteString.Lazy         as BL
 import           Data.Conduit                 (Sink)
+import           Data.Traversable             (sequenceA)
 import           Data.Default.Class           (def)
+import           Data.Maybe                   (fromMaybe)
+import qualified Data.Map.Strict              as Map
 import           Data.Monoid                  ((<>))
 import           Data.Text.Encoding           (encodeUtf8)
 import           Data.X509                    (CertificateChain (..))
@@ -34,6 +41,9 @@ import           Network.TLS                  (ClientHooks (..),
                                                Supported (..),
                                                defaultParamsClient)
 import           Network.TLS.Extra            (ciphersuite_strong)
+import           System.Directory             (doesFileExist, getHomeDirectory)
+import           System.FilePath              ((</>))
+import           System.Process               (readProcess)
 import           System.X509                  (getSystemCertificateStore)
 
 import           Control.Monad.Catch          (try)
@@ -46,11 +56,12 @@ import qualified Network.Socket               as S
 import qualified Network.Socket.ByteString    as SBS
 
 
-import           Docker.Client.Internal       (getEndpoint,
-                                               getEndpointContentType,
-                                               getEndpointRequestBody)
-import           Docker.Client.Types          (DockerClientOpts, Endpoint (..),
-                                               apiVer, baseUrl, registryAuth, DockerClientRegAuth(..))
+import           Docker.Client.Internal       (getAuthHeader,
+                                               getEndpoint,
+                                               getEndpointRequestBody,
+                                               normalizeRegUrl)
+import           Docker.Client.Types          --(DockerClientOpts, Endpoint (..),
+                                               --apiVer, baseUrl, authMethod, DockerClientRegAuth(..))
 
 type Request = HTTP.Request
 type Response = HTTP.Response BL.ByteString
@@ -98,15 +109,9 @@ runDockerT (opts, h) r = runReaderT (unDockerT r) (opts, h)
 -- benefit from testing that on all of our Endpoints
 mkHttpRequest :: HttpVerb -> Endpoint -> DockerClientOpts -> Maybe Request
 mkHttpRequest verb e opts = request
-        where fullE = T.unpack (baseUrl opts) ++ T.unpack (getEndpoint (apiVer opts) e)
-              headers = [("Content-Type", (getEndpointContentType e))] ++ case registryAuth opts of
-                Nothing -> []
-                Just DockerClientRegAuth{username,password} ->
-                  let
-                    authJSON = "{\"username\":\"" ++ username ++ "\", \"password\":\"" ++ password ++  "\"}"
-                    encoded = B64.encode $ encodeUtf8 $ T.pack authJSON
-                  in
-                    [("X-Registry-Auth", encoded)]
+        where headers = [("Content-Type", "application/json; charset=utf-8")]
+                     <> fromMaybe [] (getAuthHeader (authInfo opts) e)
+              fullE = T.unpack (baseUrl opts) ++ T.unpack (getEndpoint (apiVer opts) e)
               initialR = parseRequest fullE
               request' = case  initialR of
                             Just ir ->
@@ -114,7 +119,7 @@ mkHttpRequest verb e opts = request
                                               requestHeaders = headers}
                             Nothing -> Nothing
               request = (\r -> maybe r (\body -> r {requestBody = body,  -- This will either be a HTTP.RequestBodyLBS  or HTTP.RequestBodySourceChunked for the build endpoint
-                                                    requestHeaders = [("Content-Type", "application/json; charset=utf-8")]}) $ getEndpointRequestBody e) <$> request'
+                                                    requestHeaders = headers}) $ getEndpointRequestBody e) <$> request'
               -- Note: Do we need to set length header?
 
 defaultHttpHandler :: (
@@ -293,3 +298,73 @@ statusCodeToError (PushImageEndpoint _ _) st =
         Nothing
     else
         Just $ DockerInvalidStatusCode st
+
+-- json format for the relevant portion of a docker config file
+data DockerConfig = DockerConfig {
+        credsStore :: String
+    }
+    deriving (Eq, Show)
+
+instance FromJSON DockerConfig where
+    parseJSON (JSON.Object o) = do
+        credsStore <- o .: "credsStore"
+        return $ DockerConfig credsStore
+    parseJSON _ = fail "DockerConfig is not an object"
+
+loadDockerConfig :: IO (Maybe DockerConfig)
+loadDockerConfig = do
+    configPath <- (</> ".docker/config.json") <$> getHomeDirectory
+    configExists <- doesFileExist configPath
+    case configExists of
+        False -> return Nothing
+        True -> JSON.decodeStrict . BSC.pack <$> readFile configPath
+
+-- json format for the output of a docker auth helper
+data HelperOutput = HelperOutput {
+      username :: String
+    , secret :: String
+    }
+    deriving (Eq, Show)
+
+instance FromJSON HelperOutput where
+    parseJSON (JSON.Object o) = do
+        u <- o .: "Username"
+        p <- o .: "Secret"
+        return $ HelperOutput u p
+    parseJSON _ = fail "HelperOutput is not an object"
+
+getRegAuth :: String -> String -> IO (Maybe (Text, RegistryAuth))
+getRegAuth credCommand regName = do
+    outputStr <- readProcess credCommand ["get"] regName
+    case JSON.eitherDecodeStrict (BSC.pack outputStr) of
+        Left e -> error e
+        Right HelperOutput{username,secret} ->
+            let
+              normalized :: Maybe Text
+              normalized = normalizeRegUrl (T.pack regName)
+            in
+              return $ (, RegistryAuth username secret) <$> normalized
+
+-- Reads a registry config from the docker credentials helper
+-- First calls list to get all URLS and then calls get on each one of those
+getRegConf :: DockerConfig -> IO (Maybe RegistryConfig)
+getRegConf DockerConfig{credsStore} = do
+    let
+        credCommand = "docker-credential-" <> credsStore
+    reposString <- readProcess credCommand ["list"] ""
+    let
+      maybeRepos :: Either String (Map.Map String String)
+      maybeRepos = JSON.eitherDecodeStrict $ BSC.pack reposString
+    case maybeRepos of
+        Left e -> error e
+        Right repos -> do
+            pairsOfMaybes <- mapM (getRegAuth credCommand) $ Map.keys repos
+            let
+              maybePairs :: Maybe [(Text, RegistryAuth)]
+              maybePairs = sequenceA pairsOfMaybes
+            return $ RegistryConfig . Map.fromList <$> maybePairs
+
+loadDockerAuth :: DockerAuthStrategy -> IO (Maybe RegistryConfig)
+loadDockerAuth NoAuthStrategy = return Nothing
+loadDockerAuth (ExplicitStrategy rc) = return $ Just rc
+loadDockerAuth (DiscoverStrategy) = loadDockerConfig >>= maybe (return Nothing) getRegConf
