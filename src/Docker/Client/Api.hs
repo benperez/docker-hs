@@ -45,8 +45,6 @@ import           Docker.Client.Http
 import           Docker.Client.Types
 import           Docker.Client.Utils
 
-import Debug.Trace
-
 requestUnit :: MonadUnliftIO m => HttpVerb -> Endpoint -> DockerT m (Either DockerError ())
 requestUnit verb endpoint = fmap (const ()) <$> requestHelper verb endpoint
 
@@ -60,7 +58,6 @@ requestHelper' verb endpoint sink = do
         Nothing ->
             return $ Left $ DockerInvalidRequest endpoint
         Just request -> do
-            traceShowM request
             -- JP: Do we need runResourceT?
             -- lift $ NHS.httpSink request $ \response ->
             lift $ httpHandler request $ \response ->
@@ -202,7 +199,6 @@ buildImageFromDockerfile opts base = do
         Left e  -> return $ Left e
         Right c -> do
             lbs <- requestHelper POST (BuildImageEndpoint opts c)
-            traceShowM lbs
             return $ return ()
 
 -- | Pulls an image from Docker Hub (by default).
@@ -222,5 +218,4 @@ tagImage name repo maybeTag = requestUnit POST (TagImageEndpoint name repo maybe
 pushImage :: forall m. MonadUnliftIO m => T.Text ->  Maybe Tag -> DockerT m (Either DockerError ())
 pushImage name maybeTag = do
     lbs <- requestHelper POST (PushImageEndpoint name maybeTag)
-    traceShowM lbs
     return $ return ()
