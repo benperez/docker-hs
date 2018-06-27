@@ -19,9 +19,11 @@ module Docker.Client.Api (
     -- * Images
     , listImages
     , buildImageFromDockerfile
+    , buildImageFromDockerfileStream
     , pullImage
     , tagImage
     , pushImage
+    , pushImageStream
     -- * Other
     , getDockerVersion
     ) where
@@ -201,6 +203,14 @@ buildImageFromDockerfile opts base = do
             lbs <- requestHelper POST (BuildImageEndpoint opts c)
             return $ return ()
 
+-- A streaming version of the above
+buildImageFromDockerfileStream :: forall m b. MonadUnliftIO m => BuildOpts -> FilePath -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
+buildImageFromDockerfileStream opts base sink = do
+    ctx <- makeBuildContext $ BuildContextRootDir base
+    case ctx of
+        Left e  -> return $ Left e
+        Right c -> requestHelper' POST (BuildImageEndpoint opts c) sink
+
 -- | Pulls an image from Docker Hub (by default).
 --
 -- TODO: Add support for X-Registry-Auth and pulling from private docker
@@ -219,3 +229,7 @@ pushImage :: forall m. MonadUnliftIO m => T.Text ->  Maybe Tag -> DockerT m (Eit
 pushImage name maybeTag = do
     lbs <- requestHelper POST (PushImageEndpoint name maybeTag)
     return $ return ()
+
+-- A streaming version of the image push
+pushImageStream :: forall m b. MonadUnliftIO m => T.Text -> Maybe Tag -> Sink BS.ByteString m b -> DockerT m (Either DockerError b)
+pushImageStream name maybeTag sink = requestHelper' POST (PushImageEndpoint name maybeTag) sink
