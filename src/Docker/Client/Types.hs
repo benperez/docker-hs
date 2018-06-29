@@ -92,14 +92,16 @@ module Docker.Client.Types (
     , addVolumeFrom
     , MemoryConstraint(..)
     , MemoryConstraintSize(..)
+    , DockerStreamEntry(..)
     ) where
 
 import           Data.Aeson          (FromJSON, ToJSON, genericParseJSON,
                                       genericToJSON, object, parseJSON, toJSON,
-                                      (.!=), (.:), (.:?), (.=))
+                                      withObject, (.!=), (.:), (.:?), (.=))
 import qualified Data.Aeson          as JSON
-import           Data.Aeson.Types    (defaultOptions, fieldLabelModifier)
+import           Data.Aeson.Types    (Parser, defaultOptions, fieldLabelModifier)
 import           Data.Char           (isAlphaNum, toUpper)
+import           Data.HashMap.Lazy   (member)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map            as Map
 import           Data.Monoid         ((<>))
@@ -1513,3 +1515,22 @@ toJsonKeyVal vs getKey getVal = JSON.Object $ foldl f HM.empty vs
 -- | Helper function that return an empty dictionary "{}"
 emptyJsonObject :: JSON.Value
 emptyJsonObject = JSON.Object HM.empty
+
+data DockerStreamEntry = StreamEntry String
+                       | AuxEntry
+                       | ErrorEntry String
+                       | UnknownEntry
+
+streamParseHelper :: JSON.Object -> Parser DockerStreamEntry
+streamParseHelper o
+    | member "stream" o = do
+        message <- o .: "stream"
+        return $ StreamEntry message
+    | member "aux" o = return AuxEntry
+    | member "error" o = do
+        message <- o .: "error"
+        return $ ErrorEntry message
+    | otherwise = return UnknownEntry
+
+instance FromJSON DockerStreamEntry where
+    parseJSON = withObject "DockerStreamEntry" streamParseHelper
